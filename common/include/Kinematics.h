@@ -41,6 +41,8 @@
 #include <trajectory_msgs/JointTrajectory.h>
 #include <nav_msgs/Odometry.h>
 #include <tf/transform_broadcaster.h>
+#include<gazebo_msgs/LinkStates.h>
+
 
 typedef struct {
 	double xAbs;
