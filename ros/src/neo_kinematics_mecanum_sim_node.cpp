@@ -13,10 +13,10 @@
  *   * Redistributions in binary form must reproduce the above
  *     copyright notice, this list of conditions and the following
  *     disclaimer in the documentation and/or other materials provided
- *     with the distribution.
+ *     with the distributionh.
  *   * Neither the name of the Neobotix nor the names of its
  *     contributors may be used to endorse or promote products derived
- *     from this software without specific prior written permission.
+ *     from this software without specific prior written permissionh.
  *
  *  THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
  *  "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
@@ -39,23 +39,28 @@
 #include <boost/thread.hpp>
 #include <tf/transform_broadcaster.h>
 #include <trajectory_msgs/JointTrajectory.h>
+#include<std_msgs/Float64.h>
+
 
 class NeoMecKinSimNode
 {
 public:
+	NeoMecKinSimNode();
 	virtual ~NeoMecKinSimNode();
 	ros::NodeHandle nh;
 	ros::Publisher topicPub_Odometry;
-
+	ros::Publisher topicPub_DriveCommands;
 	ros::Subscriber topicSub_GazeboLinkState;
 	ros::Subscriber topicSub_ComVel;
+	ros::Subscriber topicsub_Joint_States;
+
 
     geometry_msgs::Quaternion odom_quat;
     geometry_msgs::Twist twist;
 	ros::Time joint_state_odom_stamp_;
 	tf::TransformBroadcaster odom_broadcaster;
 
-	int init();
+	// int init();
 	void receiveCmd(const geometry_msgs::Twist& msg);
 	void sendOdom(const gazebo_msgs::LinkStates& js);
 	void HeaderStampCB(const sensor_msgs::JointState::ConstPtr& msg);
@@ -67,10 +72,9 @@ private:
 	bool sendTransform = false;
 };
 
-NeoMecKinSimNode::~NeoMecKinSimNode()
-{}
 
-int NeoMecKinSimNode::init()
+
+NeoMecKinSimNode::NeoMecKinSimNode()
 {
 	kin = new Mecanum4WKinematics();
 
@@ -91,7 +95,6 @@ int NeoMecKinSimNode::init()
 	nh.param("devPitch", devPitch, 0.1);
 	nh.param("devYaw", devYaw, 0.1);
 	nh.param<bool>("sendTransform", sendTransform, false);
-
 	kin->setWheelDiameter(wheelDiameter);
 	kin->setAxis1Length(axisWidth);
 	kin->setAxis2Length(axisLength);
@@ -105,40 +108,56 @@ int NeoMecKinSimNode::init()
 	kin->setStdDev(devX, devY, devZ, devRoll, devPitch, devYaw);
 	
 	topicPub_Odometry = nh.advertise<nav_msgs::Odometry>("/odom", 1);
+	topicsub_Joint_States = nh.subscribe("/joint_states", 1, &NeoMecKinSimNode::HeaderStampCB, this); 
     topicSub_GazeboLinkState = nh.subscribe("/gazebo/link_states", 1, &NeoMecKinSimNode::sendOdom, this);
-    // topicPub_DriveCommands = nh.advertise<trajectory_msgs::JointTrajectory>("/drives/joint_trajectory", 1);
 	topicSub_ComVel = nh.subscribe("/cmd_vel", 1, &NeoMecKinSimNode::receiveCmd, this);
-	return 0;
+    topicPub_DriveCommands = nh.advertise<trajectory_msgs::JointTrajectory>("/wheel_controller/command", 1);
+
+	// return 0;
 }
 
+NeoMecKinSimNode::~NeoMecKinSimNode()
+{}
 
-void NeoMecKinSimNode::receiveCmd(const geometry_msgs::Twist& msg)
-{
-	twist = msg;
-}
+
 
 
 void NeoMecKinSimNode::HeaderStampCB(const sensor_msgs::JointState::ConstPtr& msg)
 {
 	joint_state_odom_stamp_ = msg->header.stamp;
-}
 
+	// {std::cout<<traj.joint_names[i]<<std::endl;}
+}
+void NeoMecKinSimNode::receiveCmd(const geometry_msgs::Twist& msg)
+{
+	twist = msg;
+	trajectory_msgs::JointTrajectory traj;
+	// std_msgs::float for the controller commands
+	kin->execInvKin(twist, traj);
+	for(int i=0;i<=traj.joint_names.size();i++)
+	{
+		traj.points[i].positions.resize(4);
+
+		traj.points[i].time_from_start = ros::Duration(0.01);
+	}
+	topicPub_DriveCommands.publish(traj);
+}
 void NeoMecKinSimNode::sendOdom(const gazebo_msgs::LinkStates& js)
 {
-	boost::lock_guard<boost::mutex> lock(mutex);
+	// boost::lock_guard<boost::mutex> lock(mutex);
 
 	// Quaternions
-	odom_quat.x = js.pose[12].orientation.x;
-	odom_quat.y = js.pose[12].orientation.y;
-	odom_quat.z = js.pose[12].orientation.z;
-	odom_quat.w = js.pose[12].orientation.w;
+	odom_quat.x = js.pose[68].orientation.x;
+	odom_quat.y = js.pose[68].orientation.y;
+	odom_quat.z = js.pose[68].orientation.z;
+	odom_quat.w = js.pose[68].orientation.w;
 	//odometry msg
 	nav_msgs::Odometry odom;
 	odom.header.stamp = joint_state_odom_stamp_;
 	odom.header.frame_id = "odom";
 	odom.child_frame_id = "base_link";
-	odom.pose.pose.position.x = js.pose[12].position.x;
-	odom.pose.pose.position.y = js.pose[12].position.y;
+	odom.pose.pose.position.x = js.pose[68].position.x;
+	odom.pose.pose.position.y = js.pose[68].position.y;
 	odom.pose.pose.position.z = 0.0;
 	odom.pose.pose.orientation = odom_quat;
 	odom.twist.twist.linear.x = twist.linear.x;
@@ -156,11 +175,6 @@ void NeoMecKinSimNode::sendOdom(const gazebo_msgs::LinkStates& js)
 	odom.twist.covariance[21] = 0.1;
 	odom.twist.covariance[28] = 0.1;
 	odom.twist.covariance[35] = 0.1;
-
-
-	topicPub_Odometry.publish(odom);
-
-	// Odometry transformation
 	geometry_msgs::TransformStamped odom_trans;
 	odom_trans.header.stamp = odom.header.stamp;
 	odom_trans.header.frame_id = odom.header.frame_id;
@@ -170,7 +184,9 @@ void NeoMecKinSimNode::sendOdom(const gazebo_msgs::LinkStates& js)
 	odom_trans.transform.translation.z = odom.pose.pose.position.z;
 	odom_trans.transform.rotation = odom.pose.pose.orientation;
 	odom_broadcaster.sendTransform(odom_trans);
+	topicPub_Odometry.publish(odom);
 
+	// Odometry transformation
 }
 
 int main (int argc, char** argv)
@@ -178,11 +194,18 @@ int main (int argc, char** argv)
     ros::init(argc, argv, "neo_kinematics_mecanum_sim_node");
 
 	NeoMecKinSimNode node;
-    if(node.init() != 0) {
-    	ROS_ERROR("neo_kinematics_mecanum_node: init failed!");
-    }
+    // if(node.init() != 0) {
+    // 	ROS_ERROR("neo_kinematics_mecanum_node: init failed!");
+    // }
+	ros::Rate loop_rate(100); 
+	while (ros::ok())
+   	{
+   		// node.init();
+      loop_rate.sleep();   
+      ros::spinOnce();   		
+   	}  
 
-	ros::spin();
+	// ros::spin();
 
 	return 0;
 }
