@@ -53,6 +53,10 @@ public:
 	ros::Subscriber topicSub_GazeboLinkState;
 	ros::Subscriber topicSub_ComVel;
 	ros::Subscriber topicsub_Joint_States;
+	ros::Publisher wheel0;
+	ros::Publisher wheel1;
+	ros::Publisher wheel2;
+	ros::Publisher wheel3;
 
 
     geometry_msgs::Quaternion odom_quat;
@@ -111,7 +115,11 @@ NeoMecKinSimNode::NeoMecKinSimNode()
 	topicsub_Joint_States = nh.subscribe("/joint_states", 1, &NeoMecKinSimNode::HeaderStampCB, this); 
     topicSub_GazeboLinkState = nh.subscribe("/gazebo/link_states", 1, &NeoMecKinSimNode::sendOdom, this);
 	topicSub_ComVel = nh.subscribe("/cmd_vel", 1, &NeoMecKinSimNode::receiveCmd, this);
-    topicPub_DriveCommands = nh.advertise<trajectory_msgs::JointTrajectory>("/wheel_controller/command", 1);
+    // topicPub_DriveCommands = nh.advertise<trajectory_msgs::JointTrajectory>("/wheel_controller/command", 1);
+	wheel0 = nh.advertise<std_msgs::Float64>("/mpo_500_omni_wheel_back_left_controller/command", 1);
+	wheel1 = nh.advertise<std_msgs::Float64>("/mpo_500_omni_wheel_back_right_controller/command", 1);
+	wheel2 = nh.advertise<std_msgs::Float64>("/mpo_500_omni_wheel_front_left_controller/command", 1);
+	wheel3 = nh.advertise<std_msgs::Float64>("/mpo_500_omni_wheel_front_right_controller/command", 1);
 
 	// return 0;
 }
@@ -132,15 +140,21 @@ void NeoMecKinSimNode::receiveCmd(const geometry_msgs::Twist& msg)
 {
 	twist = msg;
 	trajectory_msgs::JointTrajectory traj;
-	// std_msgs::float for the controller commands
 	kin->execInvKin(twist, traj);
-	for(int i=0;i<=traj.joint_names.size();i++)
-	{
-		traj.points[i].positions.resize(4);
+	std_msgs::Float64 f1,f2,f3,f4;
+	f1.data = traj.points[0].velocities[0];
+	f2.data = -traj.points[0].velocities[1];
+	f3.data = traj.points[0].velocities[2];
+	f4.data = -traj.points[0].velocities[3];
 
-		traj.points[i].time_from_start = ros::Duration(0.01);
-	}
-	topicPub_DriveCommands.publish(traj);
+	wheel0.publish(f1);
+	wheel1.publish(f2);
+	wheel2.publish(f3);
+	wheel3.publish(f4);
+
+
+
+
 }
 void NeoMecKinSimNode::sendOdom(const gazebo_msgs::LinkStates& js)
 {
