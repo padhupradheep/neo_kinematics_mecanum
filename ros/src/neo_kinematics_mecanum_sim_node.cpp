@@ -47,18 +47,24 @@ class NeoMecKinSimNode
 public:
 	NeoMecKinSimNode();
 	virtual ~NeoMecKinSimNode();
+
+	// ROS-Node handle 
 	ros::NodeHandle nh;
-	ros::Publisher topicPub_Odometry;
-	ros::Publisher topicPub_DriveCommands;
+
+	// Subscribers 
 	ros::Subscriber topicSub_GazeboLinkState;
 	ros::Subscriber topicSub_ComVel;
 	ros::Subscriber topicsub_Joint_States;
+
+	// Publishers
 	ros::Publisher wheel0;
 	ros::Publisher wheel1;
 	ros::Publisher wheel2;
 	ros::Publisher wheel3;
+	ros::Publisher topicPub_Odometry;
+	ros::Publisher topicPub_DriveCommands;
 
-
+	// Message declarations
     geometry_msgs::Quaternion odom_quat;
     geometry_msgs::Twist twist;
 	ros::Time joint_state_odom_stamp_;
@@ -66,7 +72,6 @@ public:
 
 	// int init();
 	void receiveCmd(const geometry_msgs::Twist& msg);
-	void sendOdom(const gazebo_msgs::LinkStates& js);
 	void HeaderStampCB(const sensor_msgs::JointState::ConstPtr& msg);
 
 private:
@@ -111,31 +116,28 @@ NeoMecKinSimNode::NeoMecKinSimNode()
 
 	kin->setStdDev(devX, devY, devZ, devRoll, devPitch, devYaw);
 	
-	topicPub_Odometry = nh.advertise<nav_msgs::Odometry>("/odom", 1);
+	// Subscribe to joint_states 
 	topicsub_Joint_States = nh.subscribe("/joint_states", 1, &NeoMecKinSimNode::HeaderStampCB, this); 
-    topicSub_GazeboLinkState = nh.subscribe("/gazebo/link_states", 1, &NeoMecKinSimNode::sendOdom, this);
+
+	// Subscribe to cmd_vel for the converstion to joint velocity
 	topicSub_ComVel = nh.subscribe("/cmd_vel", 1, &NeoMecKinSimNode::receiveCmd, this);
-    // topicPub_DriveCommands = nh.advertise<trajectory_msgs::JointTrajectory>("/wheel_controller/command", 1);
+
+	// Virtual controllers created for simulating the wheels  
 	wheel0 = nh.advertise<std_msgs::Float64>("/mpo_500_omni_wheel_back_left_controller/command", 1);
 	wheel1 = nh.advertise<std_msgs::Float64>("/mpo_500_omni_wheel_back_right_controller/command", 1);
 	wheel2 = nh.advertise<std_msgs::Float64>("/mpo_500_omni_wheel_front_left_controller/command", 1);
 	wheel3 = nh.advertise<std_msgs::Float64>("/mpo_500_omni_wheel_front_right_controller/command", 1);
-
-	// return 0;
 }
 
 NeoMecKinSimNode::~NeoMecKinSimNode()
 {}
 
 
-
-
 void NeoMecKinSimNode::HeaderStampCB(const sensor_msgs::JointState::ConstPtr& msg)
 {
 	joint_state_odom_stamp_ = msg->header.stamp;
-
-	// {std::cout<<traj.joint_names[i]<<std::endl;}
 }
+
 void NeoMecKinSimNode::receiveCmd(const geometry_msgs::Twist& msg)
 {
 	twist = msg;
@@ -151,56 +153,6 @@ void NeoMecKinSimNode::receiveCmd(const geometry_msgs::Twist& msg)
 	wheel1.publish(f2);
 	wheel2.publish(f3);
 	wheel3.publish(f4);
-
-
-
-
-}
-void NeoMecKinSimNode::sendOdom(const gazebo_msgs::LinkStates& js)
-{
-	// boost::lock_guard<boost::mutex> lock(mutex);
-
-	// Quaternions
-	odom_quat.x = js.pose[68].orientation.x;
-	odom_quat.y = js.pose[68].orientation.y;
-	odom_quat.z = js.pose[68].orientation.z;
-	odom_quat.w = js.pose[68].orientation.w;
-	//odometry msg
-	nav_msgs::Odometry odom;
-	odom.header.stamp = joint_state_odom_stamp_;
-	odom.header.frame_id = "odom";
-	odom.child_frame_id = "base_link";
-	odom.pose.pose.position.x = js.pose[68].position.x;
-	odom.pose.pose.position.y = js.pose[68].position.y;
-	odom.pose.pose.position.z = 0.0;
-	odom.pose.pose.orientation = odom_quat;
-	odom.twist.twist.linear.x = twist.linear.x;
-	odom.twist.twist.linear.y = twist.linear.y;
-	odom.twist.twist.linear.z = 0.0;
-	odom.twist.twist.angular.x = 0.0;
-	odom.twist.twist.angular.y = 0.0;
-	odom.twist.twist.angular.z = twist.angular.z;
-
-	// kin->execForwKin(js, odom, pose);
-	//define cov for twist msg
-	odom.twist.covariance[0] = 0.1;
-	odom.twist.covariance[7] = 0.1;
-	odom.twist.covariance[14] = 0.1;
-	odom.twist.covariance[21] = 0.1;
-	odom.twist.covariance[28] = 0.1;
-	odom.twist.covariance[35] = 0.1;
-	geometry_msgs::TransformStamped odom_trans;
-	odom_trans.header.stamp = odom.header.stamp;
-	odom_trans.header.frame_id = odom.header.frame_id;
-	odom_trans.child_frame_id = odom.child_frame_id;
-	odom_trans.transform.translation.x = odom.pose.pose.position.x;
-	odom_trans.transform.translation.y = odom.pose.pose.position.y;
-	odom_trans.transform.translation.z = odom.pose.pose.position.z;
-	odom_trans.transform.rotation = odom.pose.pose.orientation;
-	odom_broadcaster.sendTransform(odom_trans);
-	topicPub_Odometry.publish(odom);
-
-	// Odometry transformation
 }
 
 int main (int argc, char** argv)
@@ -208,18 +160,12 @@ int main (int argc, char** argv)
     ros::init(argc, argv, "neo_kinematics_mecanum_sim_node");
 
 	NeoMecKinSimNode node;
-    // if(node.init() != 0) {
-    // 	ROS_ERROR("neo_kinematics_mecanum_node: init failed!");
-    // }
+
 	ros::Rate loop_rate(100); 
 	while (ros::ok())
    	{
-   		// node.init();
       loop_rate.sleep();   
       ros::spinOnce();   		
    	}  
-
-	// ros::spin();
-
 	return 0;
 }
